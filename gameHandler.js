@@ -7,12 +7,14 @@ const level = document.querySelector('.level');
 
 let gameStart = new Audio();
 let gameOver = new Audio();
-
 gameStart.src = "assets/audio/game_theme.mp3";
 gameOver.src = "assets/audio/gameOver_theme.mp3";
 
-
+const XCONTROLSPEED = 7;
+const YCONTROLSPEED = 10;
 const levelSpeed = {easy: 7, moderate: 10, difficult: 14};
+var port;
+var lineBuffer = '';
 
 let keys = {
     ArrowUp: false,
@@ -20,7 +22,7 @@ let keys = {
     ArrowLeft: false,
     ArrowRight: false
 }
-let player = { speed: 7, score: 0 };
+let player = { speed: 7, score: 0, xspeed: 0, yspeed: 0};
 level.addEventListener('click', (e)=> {
     player.speed = levelSpeed[e.target.id];
 });
@@ -120,13 +122,14 @@ function gamePlay() {
     if(player.start){
         moveRoadLines();
         moveEnemyCars(carElement);
-            
-        if(keys.ArrowUp && player.y > (road.top + 70)) player.y -= player.speed;
-        if(keys.ArrowDown && player.y < (road.bottom - 85)) player.y += player.speed;
-        if(keys.ArrowLeft && player.x > 0) player.x -= player.speed;
-        if(keys.ArrowRight && player.x < (road.width - 70)) player.x += player.speed;
-
-        carElement.style.top = player.y + "px";
+	
+	if(player.xspeed <= 0 && player.x > 0) player.x += player.xspeed;
+        if(player.xspeed >= 0 && player.x < (road.width - 70)) player.x += player.xspeed;
+	
+	if(player.yspeed <= 0 && player.y > (road.top + 70)) player.y += player.yspeed;
+        if(player.yspeed >= 0 && player.y < (road.bottom - 85)) player.y += player.yspeed;
+        
+	carElement.style.top = player.y + "px";
         carElement.style.left = player.x + "px";
 
         window.requestAnimationFrame(gamePlay);
@@ -137,6 +140,10 @@ function gamePlay() {
     }
 }
 document.addEventListener('keydown', (e)=>{
+	if (e.key == "c") {
+	listSerial();
+	return;
+}
     e.preventDefault();
     keys[e.key] = true;
 });
@@ -145,3 +152,65 @@ document.addEventListener('keyup', (e)=>{
     e.preventDefault();
     keys[e.key] = false;
 });
+
+class LineBreakTransformer {
+        constructor() {
+            // A container for holding stream data until a new line.
+            this.chunks = "";
+        }
+
+        transform(chunk, controller) {
+            // Append new chunks to existing chunks.
+            this.chunks += chunk;
+            // For each line breaks in chunks, send the parsed lines out.
+            const lines = this.chunks.split("\r\n");
+            this.chunks = lines.pop();
+            lines.forEach((line) => controller.enqueue(line));
+        }
+
+        flush(controller) {
+            // When the stream is closed, flush any remaining chunks out.
+            controller.enqueue(this.chunks);
+        }
+    }
+async function getReader() {
+		var port = await navigator.serial.requestPort({});
+		await port.open({ baudRate: 115200 });
+		const textDecoder = new TextDecoderStream();
+        const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+        const reader = textDecoder.readable
+            .pipeThrough(new TransformStream(new LineBreakTransformer()))
+            .getReader();
+        
+        // Listen to data coming from the serial device.
+        let lastind = 0;
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) {
+                console.log("here");
+                // Allow the serial port to be closed later.
+                reader.releaseLock();
+                break;
+            }
+            //console.log(value);
+	    const valdata = value.split (" ");
+		player.xspeed = Number(valdata[1])/XCONTROLSPEED;
+		player.yspeed = -Number(valdata[0])/YCONTROLSPEED;
+
+           }
+        
+        
+		
+	}
+	function listSerial() {
+	    
+	    if (port) {
+		    port.close();
+		    port = undefined;
+		}
+		else {
+		  console.log("Look for Serial Port")
+		  getReader();
+
+		}
+	}
